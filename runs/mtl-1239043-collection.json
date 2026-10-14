@@ -3,6 +3,6 @@
   "source": "wuxiabox",
   "start": 55,
   "end": 234,
-  "delay_seconds": 3,
+  "delay_seconds": 3.0,
   "rights_confirmed": true
 }
