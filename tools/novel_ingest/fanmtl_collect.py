@@ -24,7 +24,8 @@ from bs4 import BeautifulSoup
 SLUG = "sailing-i-am-the-strongest-creature-in-the-world"
 CHINESE_TITLE = "航海：吾乃世界最强生物"
 ENGLISH_TITLE = "Sailing: I Am The Strongest Creature In The World"
-HOST = "www.fanmtl.com"
+HOST = "www.fanmtl.com"  # Primary and legacy default for backwards compatibility.
+SOURCE_HOSTS = {"fanmtl": "www.fanmtl.com", "wuxiabox": "www.wuxiabox.com"}
 CATALOG_URL = f"https://{HOST}/novel/{SLUG}.html"
 ROBOTS_URL = f"https://{HOST}/robots.txt"
 USER_AGENT = "NovelResearchCollector/1.0 (respectful public-page research)"
@@ -63,19 +64,33 @@ class CollectorError(Exception):
         self.code = code
 
 
-def chapter_url(number: int) -> str:
+def source_host(source: str) -> str:
+    if source not in SOURCE_HOSTS:
+        raise ValueError(f"Unknown MTL source: {source}")
+    return SOURCE_HOSTS[source]
+
+
+def catalog_url(source: str = "fanmtl") -> str:
+    return f"https://{source_host(source)}/novel/{SLUG}.html"
+
+
+def robots_url(source: str = "fanmtl") -> str:
+    return f"https://{source_host(source)}/robots.txt"
+
+
+def chapter_url(number: int, source: str = "fanmtl") -> str:
     if not 1 <= number <= MAX_NUMBER:
         raise ValueError(f"Chapter must be 1..{MAX_NUMBER}")
-    return f"https://{HOST}/novel/{SLUG}_{number}.html"
+    return f"https://{source_host(source)}/novel/{SLUG}_{number}.html"
 
 
-def validate_url(url: str, *, number: int | None = None) -> str:
+def validate_url(url: str, *, number: int | None = None, source: str = "fanmtl") -> str:
     parsed = urlsplit(url)
-    if (parsed.scheme != "https" or parsed.hostname != HOST or parsed.port not in (None, 443)
+    if (parsed.scheme != "https" or parsed.hostname != source_host(source) or parsed.port not in (None, 443)
             or parsed.username or parsed.password or parsed.query or parsed.fragment):
         raise CollectorError("UNSAFE_URL", "Only HTTPS URLs of the configured FanMTL host are allowed")
     if number is None:
-        allowed = parsed.path == urlsplit(CATALOG_URL).path
+        allowed = parsed.path == urlsplit(catalog_url(source)).path
     else:
         match = CHAPTER_PATH.fullmatch(parsed.path)
         allowed = match is not None and int(match.group(1)) == number
@@ -88,7 +103,7 @@ def tidy(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def parse_catalog(html: str) -> dict:
+def parse_catalog(html: str, source: str = "fanmtl") -> dict:
     soup = BeautifulSoup(html, "html.parser")
     h1 = tidy(soup.h1.get_text(" ", strip=True)) if soup.h1 else ""
     if ENGLISH_TITLE.casefold() not in h1.casefold():
@@ -98,10 +113,10 @@ def parse_catalog(html: str) -> dict:
 
     chapters = {}
     for anchor in soup.select("a[href]"):
-        url = urljoin(CATALOG_URL, anchor.get("href", ""))
+        url = urljoin(catalog_url(source), anchor.get("href", ""))
         try:
             parsed = urlsplit(url)
-            validate_url(url, number=int(CHAPTER_PATH.fullmatch(parsed.path).group(1)))
+            validate_url(url, number=int(CHAPTER_PATH.fullmatch(parsed.path).group(1)), source=source)
         except (ValueError, TypeError, AttributeError, CollectorError):
             continue
         number = int(CHAPTER_PATH.fullmatch(parsed.path).group(1))
@@ -186,7 +201,10 @@ def parse_chapter(html: str, *, number: int) -> tuple[str, str, str]:
 
 
 class Client:
-    def __init__(self, delay: float = MIN_DELAY):
+    def __init__(self, delay: float = MIN_DELAY, source: str = "fanmtl"):
+        self.source = source
+        self.host = source_host(source)
+        self.robots_url = robots_url(source)
         if delay < MIN_DELAY:
             raise ValueError(f"Minimum delay is {MIN_DELAY} seconds")
         self.delay = delay
@@ -207,7 +225,7 @@ class Client:
             raise CollectorError("REDIRECT", "Site redirected; refusing to change destination automatically")
         if res.status_code in (401, 402, 403, 429, 451):
             raise CollectorError("BLOCKED", f"HTTP {res.status_code}")
-        if res.status_code != 200 and not (url == ROBOTS_URL and res.status_code == 404):
+        if res.status_code != 200 and not (url == self.robots_url and res.status_code == 404):
             raise CollectorError("HTTP_ERROR", f"HTTP {res.status_code}")
         if len(res.content) > 2_000_000:
             raise CollectorError("TOO_LARGE", "Remote response is unusually large")
@@ -216,9 +234,9 @@ class Client:
     def html(self, url: str):
         parsed = urlsplit(url)
         match = CHAPTER_PATH.fullmatch(parsed.path)
-        validate_url(url, number=int(match.group(1)) if match else None)
+        validate_url(url, number=int(match.group(1)) if match else None, source=self.source)
         if self.robots is None:
-            result = self._fetch(ROBOTS_URL)
+            result = self._fetch(self.robots_url)
             self.robots = RobotFileParser()
             if result.status_code == 404:
                 self.robots.parse([])
@@ -240,7 +258,8 @@ class Client:
 
 
 def collect(start: int, end: int, output: Path, *, save_text: bool = False,
-            rights_confirmed: bool = False, delay: float = MIN_DELAY, client=None) -> dict:
+            rights_confirmed: bool = False, delay: float = MIN_DELAY, source: str = "fanmtl", client=None) -> dict:
+    source_host(source)
     if not 1 <= start <= end <= MAX_NUMBER or end - start + 1 > MAX_BATCH:
         raise ValueError(f"Choose {MAX_BATCH} or fewer consecutive chapters within 1..{MAX_NUMBER}")
     if delay < MIN_DELAY:
@@ -250,10 +269,11 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output directory must be empty (no overwrite)")
     output.mkdir(parents=True, exist_ok=True)
-    client = client or Client(delay)
+    client = client or Client(delay, source=source)
     data = {
         "work": CHINESE_TITLE, "english_title": ENGLISH_TITLE,
-        "source": CATALOG_URL, "source_kind": "third_party_english_mtl",
+        "source": catalog_url(source), "source_name": source,
+        "source_kind": "third_party_english_mtl",
         "original_verified": False, "rights_publication_verified": False,
         "requested_range": [start, end], "mode": "text" if save_text else "catalog",
         "status": "NOT_STARTED", "chapters_in_catalog_page": 0,
@@ -263,7 +283,7 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
     }
     stop_codes = {"BLOCKED", "ROBOTS_DISALLOWED", "REDIRECT", "ROBOTS_ERROR", "NETWORK_ERROR"}
     try:
-        c = parse_catalog(client.html(CATALOG_URL))
+        c = parse_catalog(client.html(catalog_url(source)), source=source)
         data["chapters_in_catalog_page"] = c["chapters_seen_on_this_page"]
         data["catalog_numbers_seen"] = c["chapter_numbers_seen"]
         data["claimed_total_from_site"] = c["claimed_total"]
@@ -272,7 +292,7 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
         else:
             (output / "mtl_en").mkdir()
             for number in range(start, end + 1):
-                row = {"number": number, "source_url": chapter_url(number), "status": "NOT_STARTED"}
+                row = {"number": number, "source_url": chapter_url(number, source=source), "status": "NOT_STARTED"}
                 try:
                     title, text, selector = parse_chapter(client.html(row["source_url"]), number=number)
                     file = f"mtl_en/{number:04d}.txt"
@@ -291,7 +311,7 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
         data["status"] = (exc.code if exc.code in stop_codes else "CATALOG_ERROR")
         data["error"] = {"code": exc.code, "message": str(exc)}
     (output / "manifest.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = [f"# {ENGLISH_TITLE}", "", f"- Status: {data['status']}",
+    lines = [f"# {ENGLISH_TITLE}", "", f"- Source: {source}", f"- Status: {data['status']}",
              f"- Selected chapters: {start}-{end}",
              f"- Catalog items observed on fetched page: {data['chapters_in_catalog_page']}",
              f"- Total chapters stated by site (unverified): {data['claimed_total_from_site']}",
@@ -307,6 +327,8 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", choices=sorted(SOURCE_HOSTS), default="fanmtl",
+                        help="Select the independent MTL site explicitly; no automatic fallback")
     parser.add_argument("--start", type=int, default=55)
     parser.add_argument("--end", type=int, default=58)
     parser.add_argument("--out-dir", type=Path, default=Path("out/fanmtl-1239043"))
@@ -316,7 +338,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         data = collect(args.start, args.end, args.out_dir,
-                       save_text=args.save_text, rights_confirmed=args.rights_confirmed, delay=args.delay)
+                       save_text=args.save_text, rights_confirmed=args.rights_confirmed,
+                       delay=args.delay, source=args.source)
     except (ValueError, OSError) as exc:
         print(f"Invalid request: {exc}", file=sys.stderr)
         return 2

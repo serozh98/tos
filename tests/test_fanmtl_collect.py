@@ -66,6 +66,28 @@ class Tests(unittest.TestCase):
         with self.assertRaises(c.CollectorError):
             c.validate_url(c.chapter_url(54), number=55)
 
+    def test_explicit_wuxiabox_source_does_not_cross_domains(self):
+        self.assertEqual(c.catalog_url("wuxiabox"),
+                         "https://www.wuxiabox.com/novel/" + c.SLUG + ".html")
+        chapter = c.chapter_url(55, source="wuxiabox")
+        self.assertTrue(chapter.startswith("https://www.wuxiabox.com/"))
+        self.assertEqual(c.validate_url(chapter, number=55, source="wuxiabox"), chapter)
+        with self.assertRaises(c.CollectorError):
+            c.validate_url(chapter, number=55, source="fanmtl")
+        with self.assertRaises(ValueError):
+            c.chapter_url(55, source="invalid")
+
+    def test_wuxiabox_catalog_only(self):
+        root = c.catalog_url("wuxiabox")
+        catalog = CATALOG.replace("www.fanmtl.com", "www.wuxiabox.com")
+        fake = FakeClient({root: catalog})
+        with tempfile.TemporaryDirectory() as d:
+            result = c.collect(55, 58, Path(d) / "audit", source="wuxiabox", client=fake)
+            self.assertEqual(result["status"], "CATALOG_ONLY")
+            self.assertEqual(result["source_name"], "wuxiabox")
+            self.assertEqual(result["saved_text_count"], 0)
+            self.assertEqual(fake.urls, [root])
+
     def test_catalog_metadata_and_real_links(self):
         info = c.parse_catalog(CATALOG)
         self.assertEqual(info['claimed_total'], 234)

@@ -1,4 +1,4 @@
-name: FanMTL 1239043 - audit / collect chapters
+name: MTL 1239043 - audit / collect chapters
 
 on:
   pull_request:
@@ -10,6 +10,14 @@ on:
       - 'README.md'
   workflow_dispatch:
     inputs:
+      source:
+        description: 'Select one source; never automatically switch on HTTP 403'
+        type: choice
+        options:
+          - fanmtl
+          - wuxiabox
+        required: true
+        default: wuxiabox
       start:
         description: 'Chapter from (1-234, up to 10 per run)'
         type: number
@@ -50,10 +58,14 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   catalog_probe:
-    name: Audit public FanMTL catalog (no text)
+    name: Audit public MTL catalog (${{ matrix.source }})
     needs: tests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [fanmtl, wuxiabox]
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -65,20 +77,21 @@ jobs:
       - name: Check public catalog only
         run: |
           python tools/novel_ingest/fanmtl_collect.py \
-            --start 55 --end 58 --out-dir out/fanmtl-catalog-probe
+            --source "${{ matrix.source }}" --start 55 --end 58 \
+            --out-dir "out/mtl-${{ matrix.source }}-probe"
       - name: Show result in Actions
         if: always()
         run: |
-          if [ -f out/fanmtl-catalog-probe/summary.md ]; then
-            cat out/fanmtl-catalog-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
-            cat out/fanmtl-catalog-probe/summary.md
+          if [ -f out/mtl-${{ matrix.source }}-probe/summary.md ]; then
+            cat out/mtl-${{ matrix.source }}-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat out/mtl-${{ matrix.source }}-probe/summary.md
           fi
       - name: Keep catalog report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fanmtl-1239043-catalog-audit
-          path: out/fanmtl-catalog-probe/**
+          name: mtl-1239043-${{ matrix.source }}-catalog-audit
+          path: out/mtl-${{ matrix.source }}-probe/**
           if-no-files-found: warn
           retention-days: 3
 
@@ -89,6 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
+      MTL_SOURCE: ${{ inputs.source }}
       CHAPTER_START: ${{ inputs.start }}
       CHAPTER_END: ${{ inputs.end }}
       SAVE_TEXT: ${{ inputs.save_text }}
@@ -103,22 +117,22 @@ jobs:
       - name: Audit or collect MTL
         shell: bash
         run: |
-          args=(--start "$CHAPTER_START" --end "$CHAPTER_END" --out-dir out/fanmtl-batch)
+          args=(--source "$MTL_SOURCE" --start "$CHAPTER_START" --end "$CHAPTER_END" --out-dir out/mtl-batch)
           if [ "$SAVE_TEXT" = 'true' ]; then args+=(--save-text); fi
           if [ "$RIGHTS_CONFIRMED" = 'true' ]; then args+=(--rights-confirmed); fi
           python tools/novel_ingest/fanmtl_collect.py "${args[@]}"
       - name: Show result in Actions
         if: always()
         run: |
-          if [ -f out/fanmtl-batch/summary.md ]; then
-            cat out/fanmtl-batch/summary.md >> "$GITHUB_STEP_SUMMARY"
-            cat out/fanmtl-batch/summary.md
+          if [ -f out/mtl-batch/summary.md ]; then
+            cat out/mtl-batch/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat out/mtl-batch/summary.md
           fi
       - name: Keep result (3 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fanmtl-1239043-batch
-          path: out/fanmtl-batch/**
+          name: mtl-1239043-batch
+          path: out/mtl-batch/**
           if-no-files-found: warn
           retention-days: 3
