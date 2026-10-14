@@ -1,0 +1,61 @@
+name: MTL 1239043 - English 001-054 for CN comparison
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'runs/mtl-1239043-compare.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mtl-1239043-comparison-single-session
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Offline collector tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+  collect:
+    name: Sequential Wuxiabox MTL 001-054
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Collect authorized English text with >=3 seconds between HTTP requests
+        run: |
+          python -u tools/novel_ingest/mtl_bulk_1239043.py \
+            --request runs/mtl-1239043-compare.json \
+            --out-dir out/mtl-compare-001-054
+      - name: Attach report to workflow summary
+        if: always()
+        run: |
+          if [ -f out/mtl-compare-001-054/summary.md ]; then
+            cat out/mtl-compare-001-054/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload comparison source and integrity manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtl-1239043-english-001-054
+          path: out/mtl-compare-001-054/**
+          if-no-files-found: warn
+          retention-days: 3
