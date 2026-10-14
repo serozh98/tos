@@ -49,7 +49,7 @@ class TestBulk(unittest.TestCase):
             dict(request(), rights_confirmed=False),
             dict(request(), source="fanmtl"),
             dict(request(), delay_seconds=2),
-            request(54, 55),
+            request(0, 55),
             request(55, 235),
             dict(request(), book="wrong book"),
             dict(request(), source="wuxiabox", start=True),
