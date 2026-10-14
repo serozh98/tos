@@ -49,8 +49,8 @@ def validate_request(data):
         raise ValueError("This verified collection accepts Wuxiabox only")
     if type(data["start"]) is not int or type(data["end"]) is not int:
         raise ValueError("Chapter range must use integers")
-    if not 55 <= data["start"] <= data["end"] <= 234:
-        raise ValueError("Expected a chapter range within 55..234")
+    if not 1 <= data["start"] <= data["end"] <= 234:
+        raise ValueError("Expected a chapter range within 1..234")
     delay = data["delay_seconds"]
     if type(delay) not in (int, float) or not MIN_DELAY_SECONDS <= delay <= 120:
         raise ValueError("Minimum request spacing is 3 seconds")
