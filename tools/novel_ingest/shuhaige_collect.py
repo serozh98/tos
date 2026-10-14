@@ -227,7 +227,12 @@ def run(start, end, output, save_text=False, rights_confirmed=False, delay=3, cl
                     break
             data["status"] = "PASS" if data["raw_ok_count"] == end - start + 1 else "PARTIAL"
     except CollectionError as exc:
-        data["status"] = "BLOCKED" if exc.kind in ("blocked", "robots_disallowed", "robots_error") else "CATALOG_ERROR"
+        if exc.kind in ("blocked", "robots_disallowed", "robots_error"):
+            data["status"] = "BLOCKED"
+        elif exc.kind == "network_error":
+            data["status"] = "NETWORK_ERROR"
+        else:
+            data["status"] = "CATALOG_ERROR"
         data["error"] = {"code": exc.kind, "message": str(exc)}
     (output / "manifest.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     summary = [f"# {TITLE}", "", f"- Status: {data['status']}",
