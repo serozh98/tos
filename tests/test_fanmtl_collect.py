@@ -135,6 +135,33 @@ class Tests(unittest.TestCase):
             self.assertFalse((out / 'mtl_en').exists())
             self.assertTrue((out / 'summary.md').exists())
 
+    def test_probe_chapter_checks_real_text_without_saving(self):
+        root = c.catalog_url("wuxiabox")
+        page = c.chapter_url(55, source="wuxiabox")
+        fake = FakeClient({root: CATALOG.replace("www.fanmtl.com", "www.wuxiabox.com"),
+                           page: chapter_html()})
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "probe"
+            data = c.collect(55, 58, out, source="wuxiabox", probe_number=55, client=fake)
+            self.assertEqual(data["status"], "PROBE_OK")
+            self.assertEqual(data["saved_text_count"], 0)
+            self.assertEqual(data["probe"]["number"], 55)
+            self.assertEqual(len(data["probe"]["sha256"]), 64)
+            self.assertEqual(fake.urls, [root, page])
+            self.assertFalse((out / "mtl_en").exists())
+
+    def test_probe_rejects_wrong_chapter_and_does_not_save(self):
+        root = c.catalog_url("wuxiabox")
+        page = c.chapter_url(55, source="wuxiabox")
+        fake = FakeClient({root: CATALOG.replace("www.fanmtl.com", "www.wuxiabox.com"),
+                           page: chapter_html(number=56)})
+        with tempfile.TemporaryDirectory() as d:
+            data = c.collect(55, 58, Path(d) / "probe", source="wuxiabox",
+                             probe_number=55, client=fake)
+            self.assertEqual(data["status"], "PROBE_FAILED")
+            self.assertEqual(data["probe"]["status"], "WRONG_CHAPTER")
+            self.assertEqual(data["saved_text_count"], 0)
+
     def test_collected_text_has_sha256_and_correct_metadata(self):
         fake = FakeClient({c.CATALOG_URL: CATALOG, c.chapter_url(55): chapter_html()})
         with tempfile.TemporaryDirectory() as d:

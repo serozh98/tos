@@ -258,7 +258,8 @@ class Client:
 
 
 def collect(start: int, end: int, output: Path, *, save_text: bool = False,
-            rights_confirmed: bool = False, delay: float = MIN_DELAY, source: str = "fanmtl", client=None) -> dict:
+            rights_confirmed: bool = False, delay: float = MIN_DELAY, source: str = "fanmtl",
+            probe_number: int | None = None, client=None) -> dict:
     source_host(source)
     if not 1 <= start <= end <= MAX_NUMBER or end - start + 1 > MAX_BATCH:
         raise ValueError(f"Choose {MAX_BATCH} or fewer consecutive chapters within 1..{MAX_NUMBER}")
@@ -266,6 +267,8 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
         raise ValueError(f"Minimum delay is {MIN_DELAY} seconds")
     if save_text and not rights_confirmed:
         raise ValueError("--save-text requires --rights-confirmed")
+    if probe_number is not None and (save_text or not start <= probe_number <= end):
+        raise ValueError("--probe-number must be in the requested range and cannot be used with --save-text")
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output directory must be empty (no overwrite)")
     output.mkdir(parents=True, exist_ok=True)
@@ -278,7 +281,7 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
         "requested_range": [start, end], "mode": "text" if save_text else "catalog",
         "status": "NOT_STARTED", "chapters_in_catalog_page": 0,
         "claimed_total_from_site": None, "catalog_numbers_seen": [],
-        "chapters": [], "saved_text_count": 0,
+        "chapters": [], "saved_text_count": 0, "probe": None,
         "ru_translated_count": 0, "notion_sync": "not_performed",
     }
     stop_codes = {"BLOCKED", "ROBOTS_DISALLOWED", "REDIRECT", "ROBOTS_ERROR", "NETWORK_ERROR"}
@@ -289,6 +292,20 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
         data["claimed_total_from_site"] = c["claimed_total"]
         if not save_text:
             data["status"] = "CATALOG_ONLY"
+            if probe_number is not None:
+                url = chapter_url(probe_number, source=source)
+                try:
+                    title, text, selector = parse_chapter(client.html(url), number=probe_number)
+                    data["probe"] = {
+                        "number": probe_number, "url": url, "status": "OK",
+                        "title": title, "characters": len(text), "content_selector": selector,
+                        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    }
+                    data["status"] = "PROBE_OK"
+                except CollectorError as exc:
+                    data["probe"] = {"number": probe_number, "url": url,
+                                     "status": exc.code, "message": str(exc)}
+                    data["status"] = "PROBE_FAILED"
         else:
             (output / "mtl_en").mkdir()
             for number in range(start, end + 1):
@@ -317,6 +334,10 @@ def collect(start: int, end: int, output: Path, *, save_text: bool = False,
              f"- Total chapters stated by site (unverified): {data['claimed_total_from_site']}",
              f"- MTL texts saved: {data['saved_text_count']}",
              "- Chinese RAW checked: 0", "- RU translated: 0", "- Notion sync: not performed"]
+    if data["probe"] is not None:
+        lines.append(f"- Chapter probe (no text saved): {data['probe']['number']}: {data['probe']['status']}")
+        if data["probe"].get("message"):
+            lines.append(f"- Probe error: {data['probe']['message']}")
     if "error" in data:
         lines.append(f"- Error: {data['error']['code']}: {data['error']['message']}")
     for row in data["chapters"]:
@@ -332,6 +353,7 @@ def main() -> int:
     parser.add_argument("--start", type=int, default=55)
     parser.add_argument("--end", type=int, default=58)
     parser.add_argument("--out-dir", type=Path, default=Path("out/fanmtl-1239043"))
+    parser.add_argument("--probe-number", type=int, default=None, help="Check one public chapter without saving its text")
     parser.add_argument("--delay", type=float, default=MIN_DELAY)
     parser.add_argument("--save-text", action="store_true", help="Save MTL bodies in addition to catalog audit")
     parser.add_argument("--rights-confirmed", action="store_true", help="Confirm the necessary rights to obtain/store MTL")
@@ -339,12 +361,12 @@ def main() -> int:
     try:
         data = collect(args.start, args.end, args.out_dir,
                        save_text=args.save_text, rights_confirmed=args.rights_confirmed,
-                       delay=args.delay, source=args.source)
+                       delay=args.delay, source=args.source, probe_number=args.probe_number)
     except (ValueError, OSError) as exc:
         print(f"Invalid request: {exc}", file=sys.stderr)
         return 2
     print((args.out_dir / "summary.md").read_text(encoding="utf-8"))
-    return 0 if data["status"] in ("PASS", "CATALOG_ONLY") else 1
+    return 0 if data["status"] in ("PASS", "CATALOG_ONLY", "PROBE_OK") else 1
 
 
 if __name__ == "__main__":

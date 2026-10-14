@@ -74,10 +74,10 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Check public catalog only
+      - name: Check public catalog and chapter 55 (no text saved)
         run: |
           python tools/novel_ingest/fanmtl_collect.py \
-            --source "${{ matrix.source }}" --start 55 --end 58 \
+            --source "${{ matrix.source }}" --start 55 --end 58 --probe-number 55 \
             --out-dir "out/mtl-${{ matrix.source }}-probe"
       - name: Show result in Actions
         if: always()
