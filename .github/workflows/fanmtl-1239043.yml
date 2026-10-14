@@ -1,0 +1,124 @@
+name: FanMTL 1239043 - audit / collect chapters
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fanmtl-1239043.yml'
+      - 'tools/novel_ingest/fanmtl_collect.py'
+      - 'tests/test_fanmtl_collect.py'
+      - 'docs/fanmtl-1239043.md'
+      - 'README.md'
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Chapter from (1-234, up to 10 per run)'
+        type: number
+        required: true
+        default: 55
+      end:
+        description: 'Chapter through (inclusive)'
+        type: number
+        required: true
+        default: 58
+      save_text:
+        description: 'Save MTL text files, not just audit the catalog'
+        type: boolean
+        required: true
+        default: false
+      rights_confirmed:
+        description: 'I have rights to obtain and store the MTL text'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Offline collector tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Test collectors without network access
+        run: python -m unittest discover -s tests -v
+
+  catalog_probe:
+    name: Audit public FanMTL catalog (no text)
+    needs: tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Check public catalog only
+        run: |
+          python tools/novel_ingest/fanmtl_collect.py \
+            --start 55 --end 58 --out-dir out/fanmtl-catalog-probe
+      - name: Show result in Actions
+        if: always()
+        run: |
+          if [ -f out/fanmtl-catalog-probe/summary.md ]; then
+            cat out/fanmtl-catalog-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat out/fanmtl-catalog-probe/summary.md
+          fi
+      - name: Keep catalog report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fanmtl-1239043-catalog-audit
+          path: out/fanmtl-catalog-probe/**
+          if-no-files-found: warn
+          retention-days: 3
+
+  collect:
+    name: Explicit MTL chapter batch
+    needs: tests
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CHAPTER_START: ${{ inputs.start }}
+      CHAPTER_END: ${{ inputs.end }}
+      SAVE_TEXT: ${{ inputs.save_text }}
+      RIGHTS_CONFIRMED: ${{ inputs.rights_confirmed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Audit or collect MTL
+        shell: bash
+        run: |
+          args=(--start "$CHAPTER_START" --end "$CHAPTER_END" --out-dir out/fanmtl-batch)
+          if [ "$SAVE_TEXT" = 'true' ]; then args+=(--save-text); fi
+          if [ "$RIGHTS_CONFIRMED" = 'true' ]; then args+=(--rights-confirmed); fi
+          python tools/novel_ingest/fanmtl_collect.py "${args[@]}"
+      - name: Show result in Actions
+        if: always()
+        run: |
+          if [ -f out/fanmtl-batch/summary.md ]; then
+            cat out/fanmtl-batch/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat out/fanmtl-batch/summary.md
+          fi
+      - name: Keep result (3 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fanmtl-1239043-batch
+          path: out/fanmtl-batch/**
+          if-no-files-found: warn
+          retention-days: 3
