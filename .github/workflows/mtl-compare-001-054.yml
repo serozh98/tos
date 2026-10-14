@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'runs/mtl-1239043-compare.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/mtl-compare-pr-trigger.md'
 
 permissions:
   contents: read
