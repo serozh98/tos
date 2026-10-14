@@ -65,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source: [fanmtl, wuxiabox]
+        source: [wuxiabox]
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
