@@ -1,0 +1,70 @@
+name: MTL 1239043 - sequential authorized collection
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/mtl-bulk-1239043.yml'
+      - 'tools/novel_ingest/mtl_bulk_1239043.py'
+      - 'tests/test_mtl_bulk_1239043.py'
+      - 'runs/mtl-1239043-collection.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mtl-1239043-single-collector
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Offline tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Unit tests (no internet)
+        run: python -m unittest discover -s tests -v
+
+  collect:
+    name: Collect MTL 55-234 without concurrent requests
+    needs: validate
+    if: >-
+      github.repository == 'serozh98/tos' &&
+      (contains(github.event.head_commit.added, 'runs/mtl-1239043-collection.json') ||
+       contains(github.event.head_commit.modified, 'runs/mtl-1239043-collection.json'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Sequential authorized MTL collection (3s between requests)
+        run: |
+          python -u tools/novel_ingest/mtl_bulk_1239043.py \
+            --request runs/mtl-1239043-collection.json \
+            --out-dir out/mtl-1239043
+      - name: Add report to workflow summary
+        if: always()
+        run: |
+          if [ -f out/mtl-1239043/summary.md ]; then
+            cat out/mtl-1239043/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat out/mtl-1239043/summary.md
+          fi
+      - name: Save TXT and audit artifact for 3 days
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtl-1239043-english-55-234
+          path: out/mtl-1239043/**
+          if-no-files-found: warn
+          retention-days: 3
