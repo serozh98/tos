@@ -215,8 +215,8 @@ def probe_chapter(client: PublicClient, entry: Entry, folder: Path,
 def run(args: argparse.Namespace) -> int:
     if not (1 <= args.start <= args.end <= 206 and args.end - args.start < 20):
         raise ValueError("select 1–20 chapters in the range 1–206")
-    if not 1 <= args.max_renderings <= 6:
-        raise ValueError("max_renderings must be 1–6")
+    if not 1 <= args.max_renderings <= 12:
+        raise ValueError("max_renderings must be 1–12")
     if args.save_text and not args.rights_confirmed:
         raise ValueError("--save-text requires --rights-confirmed")
     folder = Path(args.out_dir)
