@@ -16,7 +16,7 @@ on:
         description: Last chapter (328-553)
         required: true
         type: number
-        default: 331
+        default: 553
 permissions:
   contents: read
 concurrency:
@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 30
     env:
       START: ${{ github.event_name == 'workflow_dispatch' && inputs.start || 328 }}
-      END: ${{ github.event_name == 'workflow_dispatch' && inputs.end || 331 }}
+      END: ${{ github.event_name == 'workflow_dispatch' && inputs.end || 553 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
