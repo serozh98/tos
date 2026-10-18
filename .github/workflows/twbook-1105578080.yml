@@ -54,14 +54,15 @@ jobs:
         run: |
           set -euo pipefail
           args=(--start "${START:-1}" --end "${END:-4}" --delay 2 --out-dir out/twbook-1105578080)
-          if [ "$EVENT" != "workflow_dispatch" ]; then args+=(--catalog-only); fi
+          if [ "$EVENT" = "pull_request" ]; then args+=(--catalog-only); fi
+          if [ "$EVENT" = "push" ]; then args+=(--max-renderings 2); fi
           if [ "$SAVE_TEXT" = "true" ]; then args+=(--save-text); fi
           if [ "$RIGHTS_CONFIRMED" = "true" ]; then args+=(--rights-confirmed); fi
           python tools/twbook/twbook_1105578080.py "${args[@]}"
       - name: Summarize
         if: always()
         run: |
-          if test -f out/twbook-1105578080/summary.md; then cat out/twbook-1105578080/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if test -f out/twbook-1105578080/summary.md; then cat out/twbook-1105578080/summary.md | tee -a "$GITHUB_STEP_SUMMARY"; fi
           if test -f out/twbook-1105578080/error.json; then cat out/twbook-1105578080/error.json >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@v4
         if: always()
