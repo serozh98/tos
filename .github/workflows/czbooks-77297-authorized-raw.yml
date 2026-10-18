@@ -1,0 +1,60 @@
+name: CZBooks 77297 - authorized Chinese RAW 328-553
+on:
+  pull_request:
+    paths:
+      - 'tools/novel_ingest/czbooks_authorized_raw_77297.py'
+      - 'tests/test_czbooks_authorized_raw_77297.py'
+      - '.github/workflows/czbooks-77297-authorized-raw.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Share lock with long metadata-only probe: do not hammer the source
+# with multiple simultaneous collectors.
+concurrency:
+  group: czbooks-body-probe-single
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Offline tests
+        run: python -m unittest discover -s tests -p 'test_czbooks_authorized_raw_77297.py' -v
+
+  collect:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Collect publicly readable Chinese RAW chapters (user confirmed rights)
+        run: |
+          python -u tools/novel_ingest/czbooks_authorized_raw_77297.py \
+            --start 328 --end 553 --rights-confirmed \
+            --delay 3 --out-dir out/czbooks-authorized-raw
+      - name: Record progress and failures
+        if: always()
+        run: |
+          if test -f out/czbooks-authorized-raw/summary.md; then
+            cat out/czbooks-authorized-raw/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save private-to-run text bundle with short retention
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: novel-77297-chinese-raw-328-553
+          path: out/czbooks-authorized-raw/**
+          if-no-files-found: warn
+          retention-days: 3
