@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           args=(--start "${START:-1}" --end "${END:-4}" --delay 2 --out-dir out/twbook-1105578080)
           if [ "$EVENT" = "pull_request" ]; then args+=(--catalog-only); fi
-          if [ "$EVENT" = "push" ]; then args+=(--max-renderings 2); fi
+          if [ "$EVENT" = "push" ]; then args=(--start 2 --end 4 --delay 2 --max-renderings 6 --out-dir out/twbook-1105578080); fi
           if [ "$SAVE_TEXT" = "true" ]; then args+=(--save-text); fi
           if [ "$RIGHTS_CONFIRMED" = "true" ]; then args+=(--rights-confirmed); fi
           python tools/twbook/twbook_1105578080.py "${args[@]}"
