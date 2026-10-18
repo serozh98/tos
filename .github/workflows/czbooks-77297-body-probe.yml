@@ -21,7 +21,7 @@ permissions:
   contents: read
 concurrency:
   group: czbooks-body-probe-single
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
