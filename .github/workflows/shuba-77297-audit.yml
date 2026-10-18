@@ -1,0 +1,88 @@
+name: 69shuba 77297 - audit chapters 328-553
+
+on:
+  push:
+    paths:
+      - 'tools/novel_ingest/shuba_77297.py'
+      - 'tests/test_shuba_77297.py'
+      - '.github/workflows/shuba-77297-audit.yml'
+  pull_request:
+    paths:
+      - 'tools/novel_ingest/shuba_77297.py'
+      - 'tests/test_shuba_77297.py'
+      - '.github/workflows/shuba-77297-audit.yml'
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Starting chapter
+        required: true
+        type: number
+        default: 328
+      end:
+        description: Ending chapter
+        required: true
+        type: number
+        default: 553
+      save_text:
+        description: Save authorized full RAW (maximum 10 chapters)
+        required: true
+        type: boolean
+        default: false
+      rights_confirmed:
+        description: Confirm permission to obtain and store text
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+
+  catalog:
+    needs: tests
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CHAPTER_START: ${{ github.event_name == 'workflow_dispatch' && inputs.start || 328 }}
+      CHAPTER_END: ${{ github.event_name == 'workflow_dispatch' && inputs.end || 553 }}
+      SAVE_TEXT: ${{ github.event_name == 'workflow_dispatch' && inputs.save_text || false }}
+      RIGHTS_CONFIRMED: ${{ github.event_name == 'workflow_dispatch' && inputs.rights_confirmed || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Audit catalog with safe rate limits
+        shell: bash
+        run: |
+          args=(--start "$CHAPTER_START" --end "$CHAPTER_END" --out-dir out/shuba-77297)
+          if [ "$SAVE_TEXT" = "true" ]; then args+=(--save-text); fi
+          if [ "$RIGHTS_CONFIRMED" = "true" ]; then args+=(--rights-confirmed); fi
+          python tools/novel_ingest/shuba_77297.py "${args[@]}"
+      - name: Add summary
+        if: always()
+        run: |
+          if test -f out/shuba-77297/summary.md; then
+            cat out/shuba-77297/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save audit receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shuba-77297-audit
+          path: out/shuba-77297/**
+          if-no-files-found: warn
+          retention-days: 7
