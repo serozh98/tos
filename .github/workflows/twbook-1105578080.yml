@@ -2,6 +2,10 @@ name: TWBook 1105578080 audit
 on:
   push:
     branches: ['feature/twbook-1105578080']
+    paths:
+      - 'tools/twbook/twbook_1105578080.py'
+      - 'tests/test_twbook_1105578080.py'
+      - '.github/workflows/twbook-1105578080.yml'
   pull_request:
   workflow_dispatch:
     inputs:
@@ -54,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           args=(--start "${START:-1}" --end "${END:-4}" --delay 2 --out-dir out/twbook-1105578080)
-          if [ "$EVENT" = "pull_request" ]; then args+=(--catalog-only); fi
-          if [ "$EVENT" = "push" ]; then args=(--start 5 --end 8 --delay 2 --max-renderings 12 --out-dir out/twbook-1105578080); fi
+          if [ "$EVENT" != "workflow_dispatch" ]; then args+=(--catalog-only); fi
+
           if [ "$SAVE_TEXT" = "true" ]; then args+=(--save-text); fi
           if [ "$RIGHTS_CONFIRMED" = "true" ]; then args+=(--rights-confirmed); fi
           python tools/twbook/twbook_1105578080.py "${args[@]}"
