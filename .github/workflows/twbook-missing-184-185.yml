@@ -1,0 +1,59 @@
+name: Verify distinct Chinese source for chapters 184-185
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - '.github/workflows/twbook-missing-184-185.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Compare real catalog entries 183-186 and save validated text
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          from dataclasses import asdict
+          from tools.twbook.twbook_1105578080 import PublicClient, CATALOG, catalog_entries, probe_chapter, write_reports
+          out=pathlib.Path('out/missing-184-185')
+          out.mkdir(parents=True,exist_ok=True)
+          result={'status':'started','positions':[]}
+          try:
+              client=PublicClient(delay=3,timeout=20)
+              client.robots_check()
+              catalog=catalog_entries(client.get(CATALOG))
+              result['catalog_total']=len(catalog)
+              selected=[catalog[pos-1] for pos in [183,184,185,186]]
+              receipts=[]
+              for entry in selected:
+                  rec=probe_chapter(client,entry,out,max_renderings=12,save_text=True)
+                  receipts.append(rec)
+                  result['positions'].append(asdict(rec))
+                  print(f'{entry.position} => {rec.status}, title {rec.title}, chars {rec.characters}, hash {rec.sha256}',flush=True)
+              write_reports(out,catalog,receipts)
+              ok=[r for r in receipts if r.status=='ok']
+              result['unique_hashes']=len(set(r.sha256 for r in ok))
+              result['target_distinct']=bool(all(r.status=='ok' for r in receipts[1:3]) and any(receipts[i].sha256!=receipts[0].sha256 for i in [1,2]))
+              result['status']='ok' if len(receipts)==4 and len(ok)==4 else 'partial'
+          except Exception as exc:
+              result['status']='error'
+              result['error']=repr(exc)
+          (out/'comparison.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+      - name: Preserve evidence and any validated texts for authorized translation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-183-186-recheck
+          path: out/missing-184-185/**
+          if-no-files-found: warn
+          retention-days: 3
