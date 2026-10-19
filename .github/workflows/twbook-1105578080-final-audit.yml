@@ -29,6 +29,20 @@ jobs:
               client.robots_check()
               html=client.get(CATALOG)
               entries=catalog_entries(html)
+              # Inspect catalog metadata and outward links for the original publisher.
+              catalog_soup=BeautifulSoup(html,'html.parser')
+              info['catalog_meta']={
+                  'title':catalog_soup.title.get_text(' ',strip=True) if catalog_soup.title else '',
+                  'description':[(x.get('name'),x.get('content','')) for x in catalog_soup.select('meta[name=description],meta[name=author]')],
+                  'og':[(x.get('property'),x.get('content','')) for x in catalog_soup.select('meta[property^="og:"]')],
+                  'canonical':[x.get('href','') for x in catalog_soup.select('link[rel=canonical]')],
+                  'headings':[x.get_text(' ',strip=True) for x in catalog_soup.select('h1,h2')][:15],
+                  'author_lines':[line.strip()[:250] for line in catalog_soup.get_text('\\n',strip=True).splitlines() if ('作者' in line or '首發' in line or '原創' in line)][:20]
+              }
+              info['catalog_external_links']=[{'label':a.get_text(' ',strip=True)[:65],'href':urljoin(CATALOG,a.get('href',''))}
+                  for a in catalog_soup.select('a[href]')
+                  if re.search(r'作者|源站|原創|首發|原文|出版社|書籍詳情|番茄|起點|晉江',a.get_text(' ',strip=True))
+                  or re.search(r'fanqie|qidian|jjwxc|readnovel|17k|zongheng',a.get('href',''),re.I)][:25]
               info['catalog_length']=len(entries)
               info['catalog_last']=[{'position':e.position,'number':e.printed_number,'title':e.title,'url':e.url} for e in entries[-4:]]
               html=client.get(entries[-1].url)
