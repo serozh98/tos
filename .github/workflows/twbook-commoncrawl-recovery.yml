@@ -1,0 +1,103 @@
+name: Recover TWBook missing chapters from Common Crawl
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - '.github/workflows/twbook-commoncrawl-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Search independent historical crawl indexes
+        run: |
+          python - <<'PY'
+          import gzip,hashlib,json,pathlib,re,time
+          import requests
+          from tools.twbook.twbook_1105578080 import body_from_html
+          root=pathlib.Path('out/commoncrawl');root.mkdir(parents=True,exist_ok=True)
+          indices=['CC-MAIN-2026-39','CC-MAIN-2026-34','CC-MAIN-2026-30','CC-MAIN-2026-21','CC-MAIN-2026-17','CC-MAIN-2026-12']
+          positions=[173,174,175,176,177,178,179,180,181,182,184,185]
+          duplicate='28a8887d631065241d8b1eda59070e5cffb4fda0c7378bda5f9c338aff193402'
+          log=[];seen=set();hits=0
+          session=requests.Session()
+          session.headers.update({'User-Agent':'BookSourceRecoveryAudit/1.0 (historical index; research only)'})
+          # First probe one target and a control per index. Expand only if the domain is indexed.
+          indexed=[]
+          for idx in indices:
+              for n in (175,174):
+                  entry={'index':idx,'position':n,'phase':'probe'}
+                  try:
+                      r=session.get('https://index.commoncrawl.org/'+idx+'-index',
+                          params={'url':f'www.twbook.cc/1105578080/{n}.html','output':'json'},
+                          timeout=16)
+                      entry['http_status']=r.status_code
+                      if r.status_code==200:
+                          rows=[json.loads(line) for line in r.text.splitlines() if line.strip().startswith('{')]
+                          entry['records']=[{'url':x.get('url'),'timestamp':x.get('timestamp'),'filename':x.get('filename'),'offset':x.get('offset'),'length':x.get('length'),'status':x.get('status')} for x in rows[:8]]
+                          indexed.append(idx)
+                      elif r.status_code not in (404,):
+                          entry['detail']=r.text[:170]
+                  except Exception as e:entry['error']=str(e)[:200]
+                  log.append(entry)
+                  time.sleep(0.5)
+          # If this host was indexed, check the remaining nine missing positions for those same months.
+          for idx in dict.fromkeys(indexed):
+              for n in positions:
+                  entry={'index':idx,'position':n,'phase':'full'}
+                  try:
+                      r=session.get('https://index.commoncrawl.org/'+idx+'-index',
+                          params={'url':f'www.twbook.cc/1105578080/{n}.html','output':'json'},timeout=18)
+                      entry['http_status']=r.status_code
+                      rows=[json.loads(line) for line in r.text.splitlines() if line.strip().startswith('{')] if r.status_code==200 else []
+                      entry['records']=len(rows)
+                      for rec in rows[:2]:
+                          key=(rec.get('filename'),rec.get('offset'))
+                          if key in seen or rec.get('status')!='200' or not all(k in rec for k in ['filename','offset','length']):
+                              continue
+                          seen.add(key)
+                          source={'timestamp':rec.get('timestamp'),'warc_url':'https://data.commoncrawl.org/'+rec['filename'],'status':rec.get('status')}
+                          try:
+                              start=int(rec['offset']);length=int(rec['length'])
+                              resp=session.get(source['warc_url'],headers={'Range':f'bytes={start}-{start+length-1}'},timeout=20)
+                              source['fetch_status']=resp.status_code
+                              if resp.status_code!=206 or len(resp.content)>length+1024:
+                                  source['result']='range_unavailable'
+                              else:
+                                  blob=gzip.decompress(resp.content)
+                                  parts=blob.split(b'\r\n\r\n',2)
+                                  if len(parts)<3: raise ValueError('WARC and HTTP headers missing')
+                                  html=parts[2].decode('utf-8','replace')
+                                  body=body_from_html(html)
+                                  source['body_chars']=len(body)
+                                  source['sha256']=hashlib.sha256(body.encode('utf-8')).hexdigest()
+                                  source['result']='duplicate_186' if source['sha256']==duplicate else 'candidate_distinct'
+                                  if source['result']=='candidate_distinct' and len(body)>=300:
+                                      file=root/f'{n:03d}_{rec.get("timestamp","unknown")}.txt'
+                                      file.write_text(body+'\n',encoding='utf-8')
+                                      source['saved_file']=str(file)
+                          except Exception as e:source['error']=str(e)[:220]
+                          entry.setdefault('snapshots',[]).append(source)
+                  except Exception as e:entry['error']=str(e)[:200]
+                  log.append(entry);time.sleep(0.5)
+          report={'book':'閉嘴吧祖宗！你一開口，皇宮塌了','indices_probed':indices,'indexed_months':list(dict.fromkeys(indexed)),
+                  'records_checked':len(log),'source':'https://index.commoncrawl.org/collinfo.json','items':log,
+                  'text_candidates':[str(p.name) for p in root.glob('*.txt')]}
+          (root/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'indexed_months':report['indexed_months'],'candidate_text_files':report['text_candidates'],'probes':log[:12]},ensure_ascii=False,indent=2))
+          PY
+      - name: Upload results, no public text commit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-commoncrawl-history
+          path: out/commoncrawl/**
+          retention-days: 3
+          if-no-files-found: warn
