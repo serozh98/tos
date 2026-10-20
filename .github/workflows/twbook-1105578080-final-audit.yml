@@ -1,0 +1,89 @@
+name: TWBook final chapter completeness audit
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - '.github/workflows/twbook-1105578080-final-audit.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Check catalog and last chapter navigation without saving copyrighted text
+        run: |
+          python - <<'PY'
+          import json,re,hashlib
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin
+          from tools.twbook.twbook_1105578080 import PublicClient, CATALOG, SITE, BOOK, allowed, catalog_entries, body_from_html
+          info={'source':SITE+'/'+BOOK+'/', 'status':'started'}
+          try:
+              client=PublicClient(delay=3,timeout=18)
+              client.robots_check()
+              html=client.get(CATALOG)
+              entries=catalog_entries(html)
+              # Inspect catalog metadata and outward links for the original publisher.
+              catalog_soup=BeautifulSoup(html,'html.parser')
+              info['catalog_meta']={
+                  'title':catalog_soup.title.get_text(' ',strip=True) if catalog_soup.title else '',
+                  'description':[(x.get('name'),x.get('content','')) for x in catalog_soup.select('meta[name=description],meta[name=author]')],
+                  'og':[(x.get('property'),x.get('content','')) for x in catalog_soup.select('meta[property^="og:"]')],
+                  'canonical':[x.get('href','') for x in catalog_soup.select('link[rel=canonical]')],
+                  'headings':[x.get_text(' ',strip=True) for x in catalog_soup.select('h1,h2')][:15],
+                  'author_lines':[line.strip()[:250] for line in catalog_soup.get_text('\\n',strip=True).splitlines() if ('作者' in line or '首發' in line or '原創' in line)][:20]
+              }
+              info['catalog_external_links']=[{'label':a.get_text(' ',strip=True)[:65],'href':urljoin(CATALOG,a.get('href',''))}
+                  for a in catalog_soup.select('a[href]')
+                  if re.search(r'作者|源站|原創|首發|原文|出版社|書籍詳情|番茄|起點|晉江',a.get_text(' ',strip=True))
+                  or re.search(r'fanqie|qidian|jjwxc|readnovel|17k|zongheng',a.get('href',''),re.I)][:25]
+              info['catalog_length']=len(entries)
+              info['catalog_last']=[{'position':e.position,'number':e.printed_number,'title':e.title,'url':e.url} for e in entries[-4:]]
+              html=client.get(entries[-1].url)
+              soup=BeautifulSoup(html,'html.parser')
+              body=body_from_html(html)
+              info['body_chars']=len(body)
+              info['body_sha256']=hashlib.sha256(body.encode()).hexdigest()
+              info['all_content_selectors']={'div.chapter-content div.content':len(soup.select('div.chapter-content div.content')),'div.chapter-content':len(soup.select('div.chapter-content'))}
+              info['body_final_words']=body[-60:]
+              links=[]
+              for a in soup.select('a[href]'):
+                  url=urljoin(entries[-1].url,a.get('href',''))
+                  label=a.get_text(' ',strip=True)
+                  if (re.search(r'(?:下[一1]?[页頁章]|[末尾]页|next|上一)',label,re.I) or re.search(r'/1105578080/(?:20[567]|206_\d+)\.html$',url)):
+                      links.append({'label':label[:55],'url':url,'allowed':allowed(url)})
+              info['candidate_navigation']=links[-50:]
+              extra=[]
+              for item in links:
+                  url=item['url']
+                  if url==entries[-1].url or not allowed(url) or not re.search(r'/1105578080/(?:206_\d+|207)\.html$',url):
+                      continue
+                  if len(extra)>=2:break
+                  try:
+                      html2=client.get(url)
+                      body2=body_from_html(html2)
+                      extra.append({'url':url,'body_chars':len(body2),'sha256':hashlib.sha256(body2.encode()).hexdigest(),'end':body2[-50:]})
+                  except Exception as e: extra.append({'url':url,'error':str(e)})
+              info['extra_pages']=extra
+              info['status']='ok'
+          except Exception as e:
+              info['status']='blocked_or_unavailable'
+              info['error']=repr(e)
+          import pathlib
+          pathlib.Path('final-audit.json').write_text(json.dumps(info,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(info,ensure_ascii=False,indent=2))
+          PY
+      - name: Save audit metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-final-navigation-audit
+          path: final-audit.json
+          if-no-files-found: warn
+          retention-days: 3

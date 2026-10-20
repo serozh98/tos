@@ -1,0 +1,148 @@
+name: TWBook 1105578080 FULL Chinese RAW corpus
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - '.github/workflows/twbook-1105578080-full.yml'
+  workflow_dispatch:
+    inputs:
+      rights_confirmed:
+        description: 'I have rights to obtain and retain public RAW chapter texts'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: twbook-1105578080-full-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Test scraper, numbering and corpus integrity
+        run: python -m unittest discover -s tests -p 'test_twbook*.py' -v
+  fetch:
+    if: github.event_name == 'push' || inputs.rights_confirmed == true
+    needs: test
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - start: 1
+            end: 20
+            index: 0
+          - start: 21
+            end: 40
+            index: 1
+          - start: 41
+            end: 60
+            index: 2
+          - start: 61
+            end: 80
+            index: 3
+          - start: 81
+            end: 100
+            index: 4
+          - start: 101
+            end: 120
+            index: 5
+          - start: 121
+            end: 140
+            index: 6
+          - start: 141
+            end: 160
+            index: 7
+          - start: 161
+            end: 180
+            index: 8
+          - start: 181
+            end: 200
+            index: 9
+          - start: 201
+            end: 206
+            index: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Stagger concurrent runners
+        env:
+          SHARD_INDEX: ${{ matrix.index }}
+        run: sleep $(( (SHARD_INDEX % 2) * 2 ))
+      - name: Collect public Chinese RAW, validate, keep full text in artifact only
+        id: collect
+        continue-on-error: true
+        env:
+          FIRST: ${{ matrix.start }}
+          LAST: ${{ matrix.end }}
+        shell: bash
+        run: |
+          python tools/twbook/twbook_1105578080.py \
+            --start "$FIRST" --end "$LAST" \
+            --delay 4 --max-renderings 12 \
+            --save-text --rights-confirmed \
+            --out-dir out/twbook-shard
+      - name: Report per-shard results
+        if: always()
+        shell: bash
+        run: |
+          if test -f out/twbook-shard/summary.md; then cat out/twbook-shard/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if test -f out/twbook-shard/error.json; then cat out/twbook-shard/error.json >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Save validated RAW chapter shard, no public commit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-raw-${{ github.run_id }}-${{ matrix.start }}-${{ matrix.end }}
+          path: out/twbook-shard/**
+          if-no-files-found: warn
+          retention-days: 7
+  assemble:
+    needs: [test, fetch]
+    if: always() && needs.test.result == 'success' && needs.fetch.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download all chapter shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: twbook-raw-${{ github.run_id }}-*
+          path: downloaded
+          merge-multiple: false
+      - name: Verify each Chinese chapter and prepare translation queue
+        id: assemble
+        continue-on-error: true
+        run: |
+          python tools/twbook/assemble_1105578080.py \
+            --from-dir downloaded --out-dir out/twbook-full --expected 206
+      - name: Show honest completion count
+        if: always()
+        run: |
+          if test -f out/twbook-full/summary.md; then cat out/twbook-full/summary.md | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          if test -f out/twbook-full/error.txt; then cat out/twbook-full/error.txt >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Save combined Chinese source and translation queue
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-206-chapters-translation-ready-${{ github.run_id }}
+          path: out/twbook-full/**
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail workflow if any chapter missing or corrupt
+        if: steps.assemble.outcome != 'success'
+        run: exit 1

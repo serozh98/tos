@@ -1,0 +1,77 @@
+name: TWBook 1105578080 audit
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - 'tools/twbook/twbook_1105578080.py'
+      - 'tests/test_twbook_1105578080.py'
+      - '.github/workflows/twbook-1105578080.yml'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      start:
+        type: number
+        required: true
+        default: 1
+      end:
+        type: number
+        required: true
+        default: 4
+      save_text:
+        type: boolean
+        required: true
+        default: false
+      rights_confirmed:
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p test_twbook_1105578080.py -v
+  audit:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Audit public catalog or explicitly requested chapter batch
+        env:
+          EVENT: ${{ github.event_name }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SAVE_TEXT: ${{ inputs.save_text }}
+          RIGHTS_CONFIRMED: ${{ inputs.rights_confirmed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--start "${START:-1}" --end "${END:-4}" --delay 2 --out-dir out/twbook-1105578080)
+          if [ "$EVENT" != "workflow_dispatch" ]; then args+=(--catalog-only); fi
+
+          if [ "$SAVE_TEXT" = "true" ]; then args+=(--save-text); fi
+          if [ "$RIGHTS_CONFIRMED" = "true" ]; then args+=(--rights-confirmed); fi
+          python tools/twbook/twbook_1105578080.py "${args[@]}"
+      - name: Summarize
+        if: always()
+        run: |
+          if test -f out/twbook-1105578080/summary.md; then cat out/twbook-1105578080/summary.md | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          if test -f out/twbook-1105578080/error.json; then cat out/twbook-1105578080/error.json >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: twbook-1105578080-${{ github.run_id }}
+          path: out/twbook-1105578080/**
+          retention-days: 3
+          if-no-files-found: warn

@@ -1,0 +1,64 @@
+name: TWBook 173-185 historical source check
+on:
+  push:
+    branches: ['feature/twbook-1105578080']
+    paths:
+      - '.github/workflows/twbook-173-185-wayback.yml'
+permissions:
+  contents: read
+jobs:
+  check-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Check archived snapshots for missing unique chapter texts
+        run: |
+          python - <<'PYCODE'
+          import concurrent.futures,hashlib,json,pathlib,re
+          import requests
+          from tools.twbook.twbook_1105578080 import body_from_html
+          numbers=[175,177,178,179,180,181,182,184,185]
+          duplicate='28a8887d631065241d8b1eda59070e5cffb4fda0c7378bda5f9c338aff193402'
+          out=pathlib.Path('out/history');out.mkdir(parents=True,exist_ok=True)
+          def check(n):
+              target=f'https://www.twbook.cc/1105578080/{n}.html'
+              row={'position':n,'original_url':target,'status':'not_checked'}
+              try:
+                  r=requests.get('https://archive.org/wayback/available',params={'url':target},timeout=18,headers={'User-Agent':'NovelProvenanceAudit/1.0'})
+                  row['api_code']=r.status_code;r.raise_for_status()
+                  snapshot=(r.json().get('archived_snapshots') or {}).get('closest') or {}
+                  row['archive_url']=snapshot.get('url','')
+                  row['timestamp']=snapshot.get('timestamp','')
+                  if not snapshot.get('available') or not row['archive_url']:
+                      row['status']='no_snapshot';return row
+                  z=requests.get(row['archive_url'],timeout=20,headers={'User-Agent':'NovelProvenanceAudit/1.0'})
+                  row['fetch_code']=z.status_code;z.raise_for_status()
+                  z.encoding=z.apparent_encoding or z.encoding or 'utf-8'
+                  body=body_from_html(z.text)
+                  row['chars']=len(body);row['sha256']=hashlib.sha256(body.encode('utf-8')).hexdigest()
+                  row['chinese_chars']=len(re.findall(r'[\u3400-\u9fff]',body))
+                  row['status']='duplicate_186' if row['sha256']==duplicate else ('candidate_distinct' if row['chinese_chars']>=120 and len(body)>=300 else 'short_or_unverified')
+                  if row['status']=='candidate_distinct':
+                      (out/f'{n:03d}.txt').write_text(body+'\n',encoding='utf-8')
+                  return row
+              except Exception as exc:
+                  row['status']='unavailable';row['error']=str(exc)[:240];return row
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+              rows=list(pool.map(check,numbers))
+          summary={'date':'2026-10-19','book':'閉嘴吧祖宗！你一開口，皇宮塌了','source':'Internet Archive availability API','results':rows,'candidates':[x['position'] for x in rows if x['status']=='candidate_distinct']}
+          (out/'report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PYCODE
+      - name: Save provenance report and candidate originals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twbook-173-185-wayback-audit
+          path: out/history/**
+          if-no-files-found: warn
+          retention-days: 3
