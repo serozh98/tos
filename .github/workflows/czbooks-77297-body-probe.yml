@@ -1,0 +1,65 @@
+name: CZBooks 77297 - inspect Chinese chapter bodies (metadata only)
+on:
+  pull_request:
+    paths:
+      - 'tools/novel_ingest/czbooks_body_probe_77297.py'
+      - 'tests/test_czbooks_body_probe_77297.py'
+      - '.github/workflows/czbooks-77297-body-probe.yml'
+  workflow_dispatch:
+    inputs:
+      start:
+        description: First chapter (328-553)
+        required: true
+        type: number
+        default: 328
+      end:
+        description: Last chapter (328-553)
+        required: true
+        type: number
+        default: 553
+permissions:
+  contents: read
+concurrency:
+  group: czbooks-body-probe-single
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+  inspect:
+    needs: test
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      START: ${{ github.event_name == 'workflow_dispatch' && inputs.start || 328 }}
+      END: ${{ github.event_name == 'workflow_dispatch' && inputs.end || 553 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Inspect public chapter page structure (no text saved)
+        run: python tools/novel_ingest/czbooks_body_probe_77297.py --start "$START" --end "$END" --out-dir out/czbooks-body-probe
+      - name: Summarize
+        if: always()
+        run: |
+          if test -f out/czbooks-body-probe/summary.md; then
+            cat out/czbooks-body-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save metadata and failure reasons only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: czbooks-77297-body-probe
+          path: out/czbooks-body-probe/**
+          if-no-files-found: warn
+          retention-days: 7

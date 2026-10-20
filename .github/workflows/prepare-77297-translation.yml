@@ -1,0 +1,37 @@
+name: Novel 77297 - prepare 226 translation batch metadata
+on:
+  pull_request:
+    paths:
+      - 'tools/novel_ingest/prepare_translation_77297.py'
+      - 'tests/test_prepare_translation_77297.py'
+      - '.github/workflows/prepare-77297-translation.yml'
+      - 'data/czbooks-77297/translation_manifest_328-553.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline regression suite
+        run: python -m unittest discover -s tests -p test_prepare_translation_77297.py -v
+      - name: Prepare 57 translation batch plans (metadata only)
+        run: python tools/novel_ingest/prepare_translation_77297.py
+      - name: Job summary
+        if: always()
+        run: |
+          if test -f out/translation-preparation/summary.md; then
+            cat out/translation-preparation/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: novel-77297-translation-batches-metadata
+          path: out/translation-preparation/**
+          if-no-files-found: warn
+          retention-days: 7
