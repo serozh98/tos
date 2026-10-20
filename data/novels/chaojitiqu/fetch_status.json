@@ -1,0 +1,23 @@
+{
+  "title": "超级提取",
+  "reference_url": "https://ixdzs8.com/read/117771/",
+  "advertised_txt_url": "https://down7.ixdzs8.com/117771.zip",
+  "run_id": "39453115424",
+  "status": "downloaded_unverified",
+  "source_sha256": "79a2e3435fa18048e7893f7eb5b10c552ebc2de8b70d748b3574c61bb4e469c1",
+  "source_bytes": 853045,
+  "text_files": [
+    {
+      "name": "超级提取.txt",
+      "bytes": 1923479,
+      "encoding": "gb18030",
+      "cjk_chars": 799153,
+      "detected_chapter_headings": 0,
+      "artifact_file": "source_001.txt"
+    }
+  ],
+  "raw_verified": 0,
+  "translation_ready": 0,
+  "http_status": 200,
+  "actual_url": "https://down7.ixdzs8.com/117771.zip"
+}
