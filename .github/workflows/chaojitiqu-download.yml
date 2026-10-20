@@ -1,0 +1,46 @@
+name: Collect authorized Chaoji Tiqu Chinese source
+on:
+  push:
+    paths:
+      - 'tools/novel_ingest/chaojitiqu_download_authorized.py'
+      - '.github/workflows/chaojitiqu-download.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download authorized source and record audit
+        id: collect
+        continue-on-error: true
+        run: python tools/novel_ingest/chaojitiqu_download_authorized.py
+      - name: Upload short-lived RAW source artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaojitiqu-authorized-raw
+          path: out/chaojitiqu/
+          retention-days: 1
+          if-no-files-found: warn
+      - name: Publish only noncopyright status to GitHub
+        if: always()
+        run: |
+          if [ -f data/novels/chaojitiqu/fetch_status.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/novels/chaojitiqu/fetch_status.json
+            git commit -m "Record Chaoji Tiqu source-fetch audit (no book text)" || true
+            git push
+            cat data/novels/chaojitiqu/fetch_status.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Flag collection failure
+        if: steps.collect.outcome != 'success'
+        run: exit 1
