@@ -1,0 +1,28 @@
+name: Audit Chaoji Tiqu chapter catalog
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/novel_ingest/chaojitiqu_catalog.py'
+      - '.github/workflows/chaojitiqu-catalog.yml'
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit public table of contents only
+        run: python tools/novel_ingest/chaojitiqu_catalog.py
+      - name: Upload audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaojitiqu-catalog-audit
+          path: data/novels/chaojitiqu/
+          if-no-files-found: warn
+          retention-days: 14
