@@ -88,6 +88,17 @@ class Tests(unittest.TestCase):
             self.assertEqual(result["status"], "PARTIAL")
             self.assertEqual(result["chapters"][-1]["status"], "missing_from_catalog")
 
+    def test_remote_disconnect_has_explicit_network_status(self):
+        class Disconnected:
+            def html(self, url):
+                raise mod.CollectionError("network_error", "RemoteDisconnected")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = mod.run(1, 5, Path(tmp) / "run", client=Disconnected())
+            self.assertEqual(result["status"], "NETWORK_ERROR")
+            self.assertEqual(result["raw_ok_count"], 0)
+            self.assertEqual(result["error"]["code"], "network_error")
+
     def test_rights_and_limits(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
