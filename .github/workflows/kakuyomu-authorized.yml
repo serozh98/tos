@@ -1,0 +1,49 @@
+name: Collect authorized Kakuyomu Japanese originals
+
+on:
+  push:
+    branches:
+      - translation/kakuyomu-822139838502050041
+    paths:
+      - 'tools/novel_ingest/kakuyomu_authorized.py'
+      - '.github/workflows/kakuyomu-authorized.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parser
+        run: python -m pip install requests beautifulsoup4
+      - name: Retrieve allowed chapter texts for private translation preparation
+        id: retrieve
+        continue-on-error: true
+        run: python tools/novel_ingest/kakuyomu_authorized.py
+      - name: Show chapter audit
+        if: always()
+        run: |
+          if [ -f out/kakuyomu-822139838502050041/status.txt ]; then
+            cat out/kakuyomu-822139838502050041/status.txt
+            cat out/kakuyomu-822139838502050041/status.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Keep temporary full-text archive, not in git history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kakuyomu-822139838502050041-original-ja
+          path: |
+            out/kakuyomu_822139838502050041_original_ja.zip
+            out/kakuyomu-822139838502050041/status.txt
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Fail if collection was incomplete
+        if: steps.retrieve.outcome != 'success'
+        run: exit 1
